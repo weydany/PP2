@@ -1,13 +1,16 @@
-s = list(map(str, input()))
-i = 0
-while i < len(s):
-    if i + 1 < len(s) and ((s[i] == '[' and s[i + 1] == ']') or (s[i] == '{' and s[i + 1] == '}') or (s[i] == '(' and s[i + 1] == ')')):
-        s.pop(i)
-        s.pop(i)
-        i -= 1
-    i += 1
+s = input()
+a = [s[0]]
+for i in s[1:]:
+    if i == ')' and a[len(a) - 1] == '(':
+        a.pop(len(a) - 1)
+    elif i == '}' and a[len(a) - 1] == '{':
+        a.pop(len(a) - 1)
+    elif i == ']' and a[len(a) - 1] == '[':
+        a.pop(len(a) - 1)
+    else:
+        a.append(i)
 
-if len(s) == 0:
+if len(a) == 0:
     print('Yes')
 else:
     print('No')
