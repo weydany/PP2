@@ -1,8 +1,8 @@
 s = input()
-char = input()
+n = int(input())
 ans = []
 for i in range(len(s)):
-    if s[i] == char:
+    if int(s[i]) == n:
         ans.append(i)
 
 if len(ans) == 1:
