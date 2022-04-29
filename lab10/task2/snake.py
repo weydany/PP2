@@ -4,6 +4,7 @@ from random import randrange, randint
 from colors import *
 from labirinth import *
 import datetime
+from config import con, cursor
 
 pg.init() # initialization
 
@@ -12,6 +13,7 @@ WIDTH, HEIGHT = 600, 600
 screen = pg.display.set_mode((WIDTH, HEIGHT))
 FPS = pg.time.Clock()
 font = pg.font.SysFont('arial', 20)
+font_big = pg.font.SysFont('arial', 80)
 starttime = datetime.datetime.now()
 
 # variables
@@ -19,6 +21,11 @@ points, level = 0, 1
 speed = 10
 game = True
 change_level = False
+page = 0
+username = ''
+# 0 login
+# 1 game
+# 2 gameover
 
 class Snake(pg.sprite.Sprite):
     head = [60, 100]
@@ -129,22 +136,106 @@ class Food_temp(Food):
     
 food_temp = Food_temp()
 
+def drop_user():
+    cursor.execute(f"""
+        DELETE FROM users
+        WHERE username = '{username}';
+
+        DELETE FROM user_score
+        WHERE user_name = '{username}';
+
+        DELETE FROM game_result
+        WHERE username = '{username}';
+
+        DELETE FROM body
+        WHERE username = '{username}';
+    """)
+
+    con.commit()
+
+def get_result():
+    cursor.execute(f"""
+        SELECT username FROM users
+        WHERE username = '{username}';
+    """)
+    if len(cursor.fetchall()) != 0:
+        cursor.execute(f"""
+            SELECT score FROM user_score
+            WHERE user_name = '{username}';
+        """)
+        points = cursor.fetchone()[0]
+        
+
+        cursor.execute(f"""
+            SELECT * FROM game_result
+            WHERE username = '{username}';
+        """)
+
+        row = cursor.fetchone()
+        level = row[1]
+        snake.head = [row[2], row[3]]
+        food.x, food.y = row[4], row[5]
+        snake.cur_path = row[6]
+
+        cursor.execute(f"""
+            SELECT body_x, body_y FROM body
+            WHERE username = '{username}';
+        """)
+
+        rows = cursor.fetchall()
+        snake.body = []
+        for row in rows:
+            snake.body.append([row[0], row[1]])
+
+def insert_result():
+    cursor.execute('SELECT * FROM users;')
+    table_users = cursor.fetchall()
+    if len(table_users) == 0:
+        id = 0
+    else:
+        id = table_users[-1][0] + 1
+
+    cursor.execute(f"""
+        INSERT INTO users(id, username)
+        VALUES ({id}, '{username}');
+
+        INSERT INTO user_score(user_name, score)
+        VALUES ('{username}', {points});
+
+        INSERT INTO game_result(username, level, head_x, head_y, food_x, food_y, path)
+        VALUES ('{username}', {level}, {snake.head[0]}, {snake.head[1]}, {food.x}, {food.y}, '{snake.cur_path}');
+    """)
+
+    for body in snake.body:
+        cursor.execute(f"""
+            INSERT INTO body (username, body_x, body_y)
+            VALUES ('{username}', {body[0]}, {body[1]});
+        """)
+
+    con.commit()
+
 def game_over():
     global game
     if snake.head in snake.body or snake.head in labirinth: # check collision
         game = False
+        drop_user()
     elif level == 2 and snake.head in labirinth2: # check collision on second level
         game = False
+        drop_user()
 
     # checking out of area
     elif snake.head[0] < 0: 
         game = False
+        drop_user()
     elif snake.head[0] >= WIDTH:
         game = False
+        drop_user()
     elif snake.head[1] < 0:
         game = False
+        drop_user()
     elif snake.head[1] >= HEIGHT:
         game = False
+        drop_user()
 
 def draw_labirinth(): # drawing walls
     for wall in labirinth:
@@ -160,54 +251,94 @@ def level_up(): # func to level up from 1 to 2
     snake.body = [[60, 80], [60, 60], [60, 40]]
     snake.cur_path = 's'
     level = 2
-    speed = 15
+    speed = 13
 
 while game:
     for event in pg.event.get():
         if event.type == pg.QUIT:
+            cursor.execute(f"""
+                SELECT username FROM users
+                WHERE username = '{username}';
+            """)
+            if len(cursor.fetchall()) != 0:
+                drop_user()
+                print('done')
+
+            insert_result()
             game = False
         if event.type == pg.KEYDOWN: # checking key down
-            if event.key == pg.K_w:
-                snake.rotate('w')
-            elif event.key == pg.K_a:
-                snake.rotate('a')
-            elif event.key == pg.K_s:
-                snake.rotate('s')
-            elif event.key == pg.K_d:
-                snake.rotate('d')
+            if page == 1:
+                if event.key == pg.K_w:
+                    snake.rotate('w')
+                elif event.key == pg.K_a:
+                    snake.rotate('a')
+                elif event.key == pg.K_s:
+                    snake.rotate('s')
+                elif event.key == pg.K_d:
+                    snake.rotate('d')
+                elif event.key == pg.K_SPACE:
+                    page = 2
+            elif page == 2:
+                if event.key == pg.K_SPACE:
+                    page = 1
+                    get_result()
+            elif page == 0:
+                if event.key == pg.K_RETURN:
+                    get_result()
+                    page = 1
 
-    screen.fill(WHITE) # filling area
+                elif event.key == pg.K_BACKSPACE:
+                    username = username[:-1]
+                else:
+                    username += event.unicode
+            
 
-    ################### methods of classes
-    food.draw()
-    if food_temp.letsgo:
-        food_temp.draw()
-    snake.move()
-    snake.draw()
-    snake.eating(food, food_temp)
-    ###################
+    if page == 0:
+        screen.fill(RED)
+        pg.draw.rect(screen, WHITE, (200, 280, 200, 40))
+        screen.blit(font.render(username, 1, BLACK), (210, 290))
 
-    draw_labirinth() # functions
-    game_over()
 
-    #score and level
-    screen.blit(font.render(f'Score: {points}', 1, BLACK), (20, 570))
-    screen.blit(font.render(f'Level: {level}', 1, BLACK), (530, 570))
+    elif page == 1:
+        screen.fill(WHITE) # filling area
 
-    if points >= 15 and not change_level: # checking when we will level up
-        change_level = True
-        level_up()
+        ################### methods of classes
+        food.draw()
+        if food_temp.letsgo:
+            food_temp.draw()
+        snake.move()
+        snake.draw()
+        snake.eating(food, food_temp)
+        ###################
 
-    timenow = datetime.datetime.now()
+        draw_labirinth() # functions
+        game_over()
 
-    if (timenow - starttime).total_seconds() >= 10: # if timedelta 10 sec, we spawn food
-        starttime = datetime.datetime.now()
-        food_temp.letsgo = True
+        #score and level
+        screen.blit(font.render(f'Score: {points}', 1, BLACK), (20, 570))
+        screen.blit(font.render(f'Level: {level}', 1, BLACK), (530, 570))
+        screen.blit(font.render(f'user: {username}', 1, BLACK), (10, 10))
 
-    # if timedelta 5 sec, food temp disappears
-    if food_temp.letsgo and (timenow - starttime).total_seconds() >= 5:
-        starttime = datetime.datetime.now()
-        food_temp.letsgo = False
+        if points >= 15 and not change_level: # checking when we will level up
+            change_level = True
+            level_up()
+
+        timenow = datetime.datetime.now()
+
+        if (timenow - starttime).total_seconds() >= 10: # if timedelta 10 sec, we spawn food
+            starttime = datetime.datetime.now()
+            food_temp.letsgo = True
+
+        # if timedelta 5 sec, food temp disappears
+        if food_temp.letsgo and (timenow - starttime).total_seconds() >= 5:
+            starttime = datetime.datetime.now()
+            food_temp.letsgo = False
+
+    elif page == 2:
+        screen.fill(YELLOW)
+        screen.blit(font_big.render('GAME PAUSED', 1, BLACK), (60, 250))
+        drop_user()
+        insert_result()
 
 
     FPS.tick(speed) # game speed (FPS)
